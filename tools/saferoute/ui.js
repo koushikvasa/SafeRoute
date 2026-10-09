@@ -312,7 +312,7 @@
       if (status === "caution") L.circle([p.lat, p.lon], { radius: 60, color: css("--caution"), weight: 0, fillOpacity: 0.1, interactive: false }).addTo(hazardLayer);
     });
     if (!step) return;
-    const icon = timeline.scenario === "hurricane" ? "🌀" : "🔥";
+    const icon = timeline.scenario === "hurricane" ? "◎" : "▲";
     (timeline.origins || []).forEach((o) => {
       L.marker(gridLatLng(o[0], o[1]), {
         icon: L.divIcon({ className: "", html: '<div class="firepin">' + icon + "</div>", iconSize: [0, 0] }),
@@ -371,7 +371,7 @@
 
   function routeCallout(step) {
     if (!step.path.length) {
-      return '<div class="callout none"><span class="ico">⛔</span><span>Every way to ' + esc(label(trip.to))
+      return '<div class="callout none"><span class="ico">✕</span><span>Every way to ' + esc(label(trip.to))
         + " crosses a flagged corner. " + esc(step.warning || "") + "</span></div>";
     }
     const info = rerouteAt(stepIndex);
@@ -684,7 +684,7 @@
     if (!keepStep) stepIndex = 0;
     changed = {};
     const where = timeline.origins.map(nearest).join(" and ");
-    const icon = timeline.scenario === "hurricane" ? "🌀" : "🔥";
+    const icon = timeline.scenario === "hurricane" ? "◎" : "▲";
     setPrep("ok", '<i class="fire-ico">' + icon + "</i> " + (timeline.scenario === "hurricane" ? "Hurricane" : "Wildfire") + " starts near <b>" + esc(where) + "</b>",
       "", null, '<button class="btn ghost small" id="newloc" type="button">New location</button>');
     $("newloc").addEventListener("click", newDisaster);
