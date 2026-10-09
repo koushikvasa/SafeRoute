@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SafeRoute — evacuation drill</title>
+  <script>
+    document.write('<base href="' + location.pathname.replace(/\/?$/, "/") + '">');
+    document.documentElement.dataset.theme = localStorage.getItem("saferoute-theme") || "dark";
+  </script>
+  <link rel="stylesheet" href="assets/leaflet.css">
+  <style>
+    :root, [data-theme="dark"] {
+      --bg: #0a0e15; --panel: #10161f; --raised: #172031; --line: #243047;
+      --text: #e8ecf4; --muted: #8b95aa; --brand: #5b8cff; --brand-soft: rgba(91,140,255,.15);
+      --clear: #34d399; --caution: #facc15; --risk: #fb923c; --blocked: #f43f5e; --offline: #94a3b8;
+      --route: #5b8cff; --shadow: 0 12px 32px rgba(0,0,0,.45);
+    }
+    [data-theme="light"] {
+      --bg: #f3f5f9; --panel: #fff; --raised: #f5f7fb; --line: #e0e5ee;
+      --text: #121722; --muted: #5c6578; --brand: #2f5bea; --brand-soft: rgba(47,91,234,.1);
+      --clear: #0f9960; --caution: #b58900; --risk: #d9480f; --blocked: #d6334f; --offline: #64748b;
+      --route: #2f5bea; --shadow: 0 12px 32px rgba(20,30,60,.14);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.45; display: flex; flex-direction: column; }
+    button { font: inherit; color: inherit; }
+    [hidden] { display: none !important; }
+
+    .topbar { display: flex; align-items: center; gap: 12px; height: 54px; padding: 0 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+    .logo i { width: 28px; height: 28px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), #9b6bff); display: grid; place-items: center; color: #fff; font-style: normal; }
+    .pill { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: rgba(251,146,60,.14); color: var(--risk); }
+    .models { display: flex; gap: 6px; margin-left: 8px; }
+    .models span { font-size: 11px; color: var(--muted); border: 1px solid var(--line); padding: 3px 8px; border-radius: 999px; }
+    .spacer { flex: 1; }
+    .icon-btn { border: 1px solid var(--line); background: var(--raised); height: 32px; padding: 0 12px; border-radius: 9px; cursor: pointer; font-size: 13px; }
+
+    .app { flex: 1; display: grid; grid-template-columns: 430px 1fr; min-height: 0; }
+    .side { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 18px 20px 28px; }
+    .side h1 { margin: 0; font-size: 21px; letter-spacing: -.02em; }
+    .lead { margin: 6px 0 14px; color: var(--muted); font-size: 13.5px; }
+    .label { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 18px 0 8px; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+    .seg button { border: 0; background: transparent; color: var(--muted); padding: 8px; border-radius: 9px; cursor: pointer; font-weight: 600; }
+    .seg button[aria-pressed="true"] { background: var(--panel); color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+
+    .card { margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--raised); border: 1px solid var(--line); }
+    .card h2 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+    .card p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+    .ok .dot { background: var(--clear); box-shadow: 0 0 0 4px rgba(52,211,153,.18); }
+    .bad .dot { background: var(--blocked); box-shadow: 0 0 0 4px rgba(244,63,94,.18); }
+    .warn .dot { background: var(--risk); box-shadow: 0 0 0 4px rgba(251,146,60,.18); }
+    .run .dot { background: var(--brand); animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: .3; } }
+    .bar { height: 6px; border-radius: 3px; background: var(--panel); margin-top: 10px; overflow: hidden; }
+    .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brand), #9b6bff); width: 0; transition: width .4s; }
+    .btn { border: 0; border-radius: 10px; padding: 10px 14px; font-weight: 650; cursor: pointer; }
+    .btn.primary { background: var(--brand); color: #fff; }
+    .btn.ghost { background: var(--panel); border: 1px solid var(--line); }
+    .btn.small { padding: 7px 10px; font-size: 12.5px; }
+    .btn:disabled { opacity: .5; cursor: progress; }
+    .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+    .timeline { display: grid; grid-template-columns: 36px repeat(4, 1fr); gap: 6px; align-items: center; }
+    .play { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); cursor: pointer; }
+    .tstep { border: 1px solid var(--line); background: var(--raised); border-radius: 10px; padding: 7px 4px; cursor: pointer; text-align: center; font-size: 12.5px; font-weight: 650; }
+    .tstep small { display: block; font-weight: 500; color: var(--muted); font-size: 11px; }
+    .tstep[aria-pressed="true"] { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+    .tstep:disabled { opacity: .4; cursor: default; }
+
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+    .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 8px; }
+    .stat b { display: block; font-size: 17px; }
+    .stat span { font-size: 11px; color: var(--muted); }
+    .verify { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px dashed var(--line); font-size: 13px; }
+    .verify b { color: var(--text); }
+
+    ol.dirs { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+    ol.dirs li { counter-increment: s; }
+    ol.dirs button { width: 100%; text-align: left; cursor: pointer; display: grid; grid-template-columns: 26px 1fr; gap: 10px; background: transparent; border: 0; padding: 7px 6px; border-radius: 9px; font-size: 13.5px; }
+    ol.dirs button:hover { background: var(--raised); }
+    ol.dirs button::before { content: counter(s); width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-size: 12px; font-weight: 700; }
+    ol.dirs small { display: block; color: var(--muted); font-size: 12px; }
+
+    .avoid { list-style: none; margin: 0; padding: 0; }
+    .avoid li { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+    .avoid li:first-child { border-top: 0; }
+    .avoid img { width: 54px; height: 31px; object-fit: cover; border-radius: 6px; background: #000; }
+    .avoid .why { color: var(--muted); font-size: 12px; display: block; }
+    .chip { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; display: inline-block; }
+    .chip.clear { background: rgba(52,211,153,.15); color: var(--clear); }
+    .chip.caution { background: rgba(250,204,21,.15); color: var(--caution); }
+    .chip.risk { background: rgba(251,146,60,.16); color: var(--risk); }
+    .chip.blocked { background: rgba(244,63,94,.15); color: var(--blocked); }
+    .chip.offline { background: rgba(148,163,184,.18); color: var(--offline); }
+    .chip.neutral { background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+
+    .flow { display: grid; gap: 8px; font-size: 12.5px; color: var(--muted); }
+    .flow div { display: grid; grid-template-columns: 22px 1fr; gap: 8px; }
+    .flow b { color: var(--text); }
+    .flow span { width: 20px; height: 20px; border-radius: 6px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; font-size: 11px; font-weight: 800; }
+
+    .mapbox { position: relative; min-height: 0; }
+    #map { position: absolute; inset: 0; background: var(--bg); }
+    [data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4); }
+    .leaflet-container { font-family: inherit; }
+    .float { position: absolute; z-index: 500; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 12px 14px; font-size: 12.5px; }
+    .legend { left: 14px; bottom: 22px; display: grid; gap: 5px; }
+    .legend span { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+    .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+    .wind { right: 14px; top: 14px; display: flex; align-items: center; gap: 12px; }
+    .compass { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--line); position: relative; background: var(--raised); }
+    .compass::after { content: "N"; position: absolute; top: 1px; left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--muted); font-weight: 700; }
+    .needle { position: absolute; inset: 0; display: grid; place-items: center; color: var(--risk); font-size: 20px; transition: transform .6s; }
+    .wind b { display: block; font-size: 13.5px; }
+    .wind span { color: var(--muted); }
+    .wallbtn { left: 50%; transform: translateX(-50%); top: 14px; padding: 8px 14px; cursor: pointer; font-weight: 650; }
+
+    .wall { left: 14px; right: 14px; bottom: 14px; top: 70px; display: none; overflow: auto; z-index: 600; }
+    .wall.open { display: block; }
+    .wall header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .wall h3 { margin: 0; font-size: 15px; }
+    .wallgrid { display: grid; grid-template-columns: repeat({{ size }}, 1fr); gap: 4px; }
+    .feed img { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; }
+    .feed.clear { border-color: var(--clear); } .feed.caution { border-color: var(--caution); } .feed.risk { border-color: var(--risk); border-style: dashed; }
+    .feed.blocked { border-color: var(--blocked); } .feed.offline { border-color: var(--offline); filter: grayscale(1); }
+    .feed .id { position: absolute; left: 3px; top: 2px; font-size: 10px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px #000; }
+    .feed.onroute::after { content: ""; position: absolute; inset: 0; box-shadow: inset 0 0 0 3px var(--route); }
+    .brief { border-left: 4px solid var(--brand); }
+    .brief h5 { margin: 0 0 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .brief p { color: var(--text); font-size: 13.5px; margin: 0; }
+    .feed { position: relative; border-radius: 10px; overflow: hidden; background: #000; cursor: pointer; border: 2px solid transparent; }
+    .feed video { width: 100%; display: block; aspect-ratio: 16/9; object-fit: cover; }
+    .feed .tag { position: absolute; left: 6px; top: 6px; right: 6px; display: flex; justify-content: space-between; gap: 6px; font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px #000; }
+    .feed .say { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 8px 6px; font-size: 11px; color: #e5e7eb; background: linear-gradient(transparent, rgba(0,0,0,.85)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .feed.onroute { border-color: var(--route); }
+    .feed .chip { background: rgba(0,0,0,.78); text-shadow: none; }
+
+    .camera { right: 14px; bottom: 22px; width: 380px; max-height: calc(100% - 100px); overflow-y: auto; display: none; z-index: 700; }
+    .camera.open { display: block; }
+    .camera header { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+    .camera h4 { margin: 0 0 4px; font-size: 14px; }
+    .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 20px; line-height: 1; }
+    .camera video { width: 100%; border-radius: 10px; background: #000; margin-top: 10px; aspect-ratio: 16/9; }
+    .verdict { margin-top: 10px; padding: 10px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); }
+    .verdict h5 { margin: 0 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .verdict q { display: block; color: var(--text); font-size: 13px; margin-top: 6px; quotes: "\201C" "\201D"; }
+    .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .kv div { font-size: 11.5px; color: var(--muted); }
+    .kv b { display: block; color: var(--text); font-size: 13px; }
+    .muted { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+
+    .icon-btn .live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--clear); margin-right: 7px; vertical-align: 1px; animation: pulse 1.6s infinite; }
+    .calls { right: 14px; top: 14px; bottom: 14px; width: 470px; display: none; overflow-y: auto; z-index: 650; }
+    .calls.open { display: block; }
+    .calls header { display: flex; justify-content: space-between; align-items: center; }
+    .calls h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+    .opstats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 10px 0; }
+    .opstat { background: var(--raised); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+    .opstat b { display: block; font-size: 13px; }
+    .opstat span { display: block; font-size: 11px; color: var(--muted); }
+    .opstat em { font-style: normal; font-size: 17px; font-weight: 750; color: var(--text); }
+    .calllist { list-style: none; margin: 0; padding: 0; }
+    .calllist li { padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; }
+    .calllist li.fresh { animation: fresh 1.6s ease-out; }
+    @keyframes fresh { from { background: var(--brand-soft); } to { background: transparent; } }
+    .calllist .top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .calllist .top .ms { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .calllist .where { color: var(--text); font-weight: 600; }
+    .calllist .out { color: var(--muted); margin-top: 3px; }
+    .calllist .tid { color: var(--muted); font-size: 10.5px; font-family: ui-monospace, monospace; margin-top: 2px; }
+
+    .dotpin { width: 16px; height: 16px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--offline); border: 2px solid var(--panel); box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+    .dotpin.clear { background: var(--clear); } .dotpin.caution { background: var(--caution); } .dotpin.risk { background: var(--risk); }
+    .dotpin.blocked { background: var(--blocked); } .dotpin.offline { background: var(--offline); }
+    .dotpin.onroute { box-shadow: 0 0 0 3px var(--route); }
+    .dotpin.place { width: max-content; height: auto; padding: 2px 7px; border-radius: 6px; font-size: 10px; font-weight: 800; background: var(--text); color: var(--panel); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+    .dotpin.place.end { background: var(--brand); color: #fff; font-size: 11px; padding: 3px 8px; }
+    .dotpin.place i, .pin .role i { width: 7px; height: 7px; border-radius: 50%; background: var(--offline); display: inline-block; }
+    .dotpin.place i.clear, .pin .role i.clear { background: var(--clear); }
+    .dotpin.place i.caution, .pin .role i.caution { background: var(--caution); }
+    .dotpin.place i.risk, .pin .role i.risk { background: var(--risk); }
+    .dotpin.place i.blocked, .pin .role i.blocked { background: var(--blocked); }
+    .seg.dest { grid-template-columns: repeat(3, 1fr); }
+    .pin { position: relative; transform: translate(-50%, -50%); width: 64px; height: 40px; border-radius: 9px; overflow: hidden; border: 3px solid var(--offline); background: #111 center/cover no-repeat; box-shadow: 0 4px 14px rgba(0,0,0,.45); transition: transform .15s; }
+    .pin:hover { transform: translate(-50%, -50%) scale(1.1); }
+    .pin b { position: absolute; left: 0; bottom: 0; font-size: 10px; font-weight: 800; color: #fff; background: rgba(0,0,0,.65); padding: 1px 4px; border-top-right-radius: 6px; }
+    .pin.clear { border-color: var(--clear); }
+    .pin.caution { border-color: var(--caution); }
+    .pin.risk { border-color: var(--risk); border-style: dashed; }
+    .pin.blocked { border-color: var(--blocked); }
+    .pin.offline { border-color: var(--offline); filter: grayscale(1); }
+    .pin.onroute { box-shadow: 0 0 0 3px var(--route), 0 4px 14px rgba(0,0,0,.45); }
+    .pin.selected { transform: translate(-50%, -50%) scale(1.18); }
+    .pin .role { position: absolute; top: 0; right: 0; font-size: 9px; font-weight: 800; padding: 1px 5px; border-bottom-left-radius: 6px; background: var(--text); color: var(--panel); }
+    .pin .role { display: flex; align-items: center; gap: 3px; }
+    .pin .role.end { background: var(--brand); color: #fff; }
+    .leaflet-div-icon { background: none; border: 0; }
+    .route-glow { filter: drop-shadow(0 0 6px var(--route)); }
+    .route-ants { animation: ants 1.2s linear infinite; }
+    @keyframes ants { to { stroke-dashoffset: -24; } }
+    .mapfail { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
+
+    @media (max-width: 1000px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 75vh; }
+      .wallgrid { grid-template-columns: repeat(2, 1fr); }
+      .camera { left: 14px; width: auto; }
+      .models { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="logo"><i>➜</i>SafeRoute</div>
+    <span class="pill">Evacuation drill · simulated disaster on archived NYC video</span>
+    <div class="models"><span>VAST video archive</span><span>NVIDIA Cosmos3-Reason</span><span>YOLO11</span><span>W&amp;B Weave</span></div>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="calls-btn" type="button"><span class="live"></span>Model calls</button>
+    <button class="icon-btn" id="theme-btn" type="button">Dark</button>
+  </div>
+
+  <div class="app">
+    <aside class="side">
+      <h1>Get there safely</h1>
+      <p class="lead">100 real NYC street cameras sit on Midtown intersections, from 11th Ave to Lexington and W 59th to W 41st. A simulated disaster degrades their actual footage over 30 minutes. AI watches every feed and routes any trip around the danger.</p>
+
+      <div class="seg" id="scenario" role="group" aria-label="Disaster">
+        <button type="button" data-value="wildfire" aria-pressed="true">Wildfire</button>
+        <button type="button" data-value="hurricane" aria-pressed="false">Hurricane</button>
+      </div>
+
+      <div class="label">From Home to</div>
+      <div class="seg dest" id="dest" role="group" aria-label="Destination">
+        {% for p in places if p.key != "home" %}
+        <button type="button" data-cell="{{ p.cell }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ p.label }}</button>
+        {% endfor %}
+      </div>
+
+      <div class="card" id="prep" aria-live="polite">
+        <h2><span class="dot"></span><span id="prep-title">Checking drill…</span></h2>
+        <p id="prep-text"></p>
+        <div class="bar" id="prep-bar" hidden><i></i></div>
+        <div class="row" id="prep-actions"></div>
+      </div>
+
+      <div id="drill" hidden>
+        <div class="label">Timeline</div>
+        <div class="timeline" id="timeline">
+          <button class="play" id="play" type="button" aria-label="Play timeline">▶</button>
+          {% for minute in steps %}
+          <button class="tstep" type="button" data-step="{{ loop.index0 }}">T+{{ minute }}<small>min</small></button>
+          {% endfor %}
+        </div>
+
+        <div class="card" id="result"></div>
+
+        <div class="card brief" id="brief" hidden></div>
+
+        <div class="label">Directions</div>
+        <ol class="dirs" id="dirs"></ol>
+
+        <div class="label" id="avoid-label">What the cameras flagged</div>
+        <ul class="avoid" id="avoid"></ul>
+      </div>
+
+      <div class="label">How each feed is analyzed</div>
+      <div class="flow">
+        <div><span>1</span><p style="margin:0"><b>Pixel check.</b> We decode the frames. A black or frozen feed means the camera is lost.</p></div>
+        <div><span>2</span><p style="margin:0"><b>NVIDIA Cosmos3-Reason watches the clip</b> and reports whether the road is passable, how far you can see, and what hazards it spots.</p></div>
+        <div><span>3</span><p style="margin:0"><b>YOLO11 counts</b> vehicles and people per frame.</p></div>
+        <div><span>4</span><p style="margin:0"><b>Predict and route.</b> Lost corners spread downwind using live Open-Meteo wind. We avoid them and score each prediction at the next step.</p></div>
+      </div>
+    </aside>
+
+    <main class="mapbox">
+      <div id="map" aria-label="Map of Midtown Manhattan with camera intersections"></div>
+      <button class="float wallbtn" id="wall-btn" type="button" hidden>View all 100 feeds</button>
+      <div class="float wind" id="wind" hidden>
+        <div class="compass"><div class="needle" id="needle">➜</div></div>
+        <div><b id="wind-title">Wind</b><span id="wind-text"></span></div>
+      </div>
+      <div class="float legend">
+        <span><i style="background:var(--clear)"></i>Safe</span>
+        <span><i style="background:var(--caution)"></i>Caution (smoke, rain, slow)</span>
+        <span><i style="border:2px dashed var(--risk)"></i>Predicted to fail next</span>
+        <span><i style="background:var(--blocked)"></i>Not passable</span>
+        <span><i style="background:var(--offline)"></i>Camera lost</span>
+        <span><i style="background:var(--route);height:4px"></i>Your route</span>
+      </div>
+      <div class="float wall" id="wall">
+        <header><h3 id="wall-title">All feeds</h3><button class="x" id="wall-close" type="button" aria-label="Close">×</button></header>
+        <div class="wallgrid" id="wallgrid"></div>
+      </div>
+      <div class="float camera" id="camera" aria-live="polite"></div>
+      <div class="float calls" id="calls">
+        <header><h3>Model calls <span class="chip clear">live</span></h3><button class="x" id="calls-close" type="button" aria-label="Close">×</button></header>
+        <p class="muted" id="calls-note"></p>
+        <div class="opstats" id="opstats"></div>
+        <ul class="calllist" id="calllist"></ul>
+      </div>
+    </main>
+  </div>
+
+  <script src="assets/leaflet.js"></script>
+  <script>window.PLACES = {{ cells|tojson }}; window.NAMED = {{ places|tojson }};</script>
+  <script>{% include "ui.js" %}</script>
+</body>
+</html>

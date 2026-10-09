@@ -1,0 +1,5 @@
+flask==3.1.2
+requests==2.32.5
+numpy==2.3.3
+imageio-ffmpeg==0.6.0
+weave==0.53.11

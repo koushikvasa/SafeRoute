@@ -137,7 +137,7 @@ Predicted-next cells are avoided even if their own camera still looks open. The 
 **Two buttons**
 
 1. **Read cameras** — 16 parallel VAST lookups (8s timeout each) and W&B on clips that return. Timeouts become Camera dark.
-2. **Run disaster drill** — labeled simulation so the story always appears. Sets A2, B2, and C3 to Camera dark. Pins a foggy neighborhood clip on B1 and a stopped/blocking clip on C2 as Do-not-use. Other cells keep real open clips. Banner: `DRILL — DARK CAMERAS ARE ASSUMED HIT. THIS IS NOT A LIVE DISASTER.`
+2. **Run disaster drill** — labeled simulation so the story always appears. Sets **A3, B2, and C3** to Camera dark. Pins a foggy neighborhood clip on **B3** and a stopped/blocking clip on **C2** as Do-not-use. A2 and B1 stay open so Home is not boxed in. Other cells keep real open clips. Banner: `DRILL — DARK CAMERAS ARE ASSUMED HIT. THIS IS NOT A LIVE DISASTER.`
 
 Working cells rotate distinct archive clips we already found (I-24 flow, NYC intersection, bike lane, SF street, PIE queue, neighborhood fog). One clip is never copied onto two cells. The archive does not contain real wildfire or hurricane video; the drill says that on screen.
 
@@ -277,16 +277,14 @@ tools/saferoute/
 ├── main.py              # Flask app: routes, JWT cache, wire modules
 ├── vast_client.py       # login, search, metadata, detections, stream proxy helper
 ├── wandb_classify.py    # OpenAI-compatible inference + Pydantic validation
-├── router.py            # 3 paths, camera penalties, weather add-on
-├── weather.py           # Open-Meteo current + 3h outlook, no API key
-├── models.py            # Pydantic Observation, AnalyzeResponse, etc.
-├── weave_ops.py         # @weave.op wrappers: retrieve / classify / compare
-├── static/
-│   └── (optional empty — prefer inline CSS in template)
-├── templates/
-│   └── index.html       # single dashboard: SVG routes + player + panels
-├── requirements.txt     # flask, requests, openai, pydantic, weave, wandb
-├── test_router.py       # local unit tests: normal / congested / unknown / fail-closed
+├── map_model.py         # cells A1–D4, one camera each
+├── router.py            # grid path A1→D4 avoiding dark, do-not-use, predicted-next
+├── weather.py           # Open-Meteo wind at the district pin
+├── models.py            # cell status + W&B observation that maps onto it
+├── weave_ops.py         # retrieve, classify, weather, compare_routes
+├── index.html           # 4×4 grid. Must stay in this folder: ConfigMaps do not mount subdirectories
+├── requirements.txt     # slice 1: flask. Add requests/openai/pydantic/weave when those slices land
+├── test_router.py       # shelter path avoids dark and predicted-next cells
 └── README.md            # how to run/deploy, disclaimers, demo notes
 ```
 
@@ -308,12 +306,13 @@ evidence_text: str  # non-empty, grounded
 action: Literal["keep", "penalize", "investigate"]
 ```
 
-**Fail-closed normalization** (single function used after every LLM call):
+Map a W&B observation onto a grid cell. This replaces the old “penalize one road” rule:
 
-- Parse error / HTTP error / empty body → `unknown`, `confidence=0`, `action=investigate`
-- `confidence < 0.75` → force `unknown` + `investigate` (no auto penalty)
-- `possible_obstruction` → never auto-penalize; UI shows investigate
-- Prompt forbids inventing fire/flood/closure/NYC location from archive captions
+- `normal` and confidence ≥ 0.75 → **open**
+- blockage, stopped traffic, poor visibility, `congested`, or `possible_obstruction` → **do_not_use**
+- parse error, HTTP error, timeout, or no clip → **camera_dark** (drill: already hit)
+- the downwind neighbor of a dark or do-not-use cell → **predicted_next**
+- Prompt forbids inventing a flame, flood, or a real city from an archived street caption
 
 ### C2. `vast_client.py` — VSS
 
@@ -343,7 +342,7 @@ Normalize real API fields after one inspected response into an internal `Evidenc
 
 ### C5. `weave_ops.py`
 
-Three ops only (MVP):
+Four ops:
 
 1. `retrieve_vast_evidence(map_camera_id, query, archive_camera_id) → Evidence` (sanitized) — called once per map camera
 2. `classify_with_wandb(evidence) → Observation` — once per camera
@@ -383,7 +382,6 @@ Run up to 16 retrieve+classify calls with a thread pool and an 8 second timeout 
   "no_clear_route": false,
   "weather": { "source": "open-meteo", "wind_direction": "east", "wind_mph": 18, "summary": "windy" },
   "why": "B2 is dark. Wind is east, so B3 is predicted next. Path stays off both.",
-  "demo_inject_used": false,
   "weave": { "project", "hint": "open W&B Weave UI for this project" }
 }
 ```
@@ -437,7 +435,7 @@ Extend skill’s VSS secret — **do not put W&B keys in ConfigMap**:
 - `WANDB_API_KEY`, `WANDB_TEAM`, `WANDB_PROJECT`
 - optional `WANDB_INFERENCE_BASE_URL=https://api.inference.wandb.ai/v1`
 
-**Critical known issue:** VM shell `WANDB_*` does **not** auto-inject into the pod — must wire Secret → Deployment `env` `secretKeyRef`.
+**Critical known issue:** VM shell `WANDB_*` does **not** auto-inject into the pod — must wire Secret → Deployment `env` `secretKeyRef`. The ingress hostname in `INGRESS_URL` does not resolve inside the pod. Set `VSS_URL` to `http://video-backend-service:8000` in this namespace. Keep the password in the Secret.
 
 ### F3. Deployment / Service / Ingress
 
@@ -483,7 +481,7 @@ Checklist mirrored in README; must tick before claiming success:
 7. Disclaimers visible
 8. Submission package ready
 
-**Honesty rule:** If archive only returns normal traffic, UI shows normal/unknown from real inference; route change only via labeled DEMO TEST.
+**Honesty rule:** Dark cameras and predicted-next cells are a labeled drill. Archived street video is not a live wildfire or hurricane.
 
 ---
 
@@ -499,17 +497,11 @@ Slice order, each slice deployed or at least runnable before the next:
 4. Weather wind arrow changes which neighbor is predicted.
 5. **Read cameras** across all 16 cells last. It is the slow part. The drill already tells the story if this is late.
 
-## 10. Timeboxed execution order (align to 4:30 PM window)
+## 10. What ships now
 
-| Milestone | Focus | Done when |
-| --- | --- | --- |
-| **0 (~15m)** | Preflight A1–A4 | Clip plays in VSS UI; W&B chat works; kubectl OK |
-| **1 (~45m)** | `vast_client` + `wandb_classify` + weave ops + `POST /analyze` CLI/curl | JSON with real evidence + observation; Weave visible |
-| **2 (~45m)** | `router` + `index.html` + evidence proxy | SVG route flips on supported congestion / demo inject |
-| **3 (~30m)** | K8s deploy F1–F4 | workshop App opens SafeRoute |
-| **4 (remaining)** | Edge cases, README, screenshots, 60s demo recording, submission | Acceptance checklist green |
+Follow §9b, not the old traffic milestones. **Now: slice 1 only** — static 4×4 grid, Home at A1, Shelter at D4, `/health`, deployed at Ingress `/app`. Wire the VSS and W&B Secret on this first deploy so later slices do not rediscover that VM env vars never enter the pod. Do not implement analyze, drill, or weather in this slice.
 
-**Cut order if behind** (never cut the last four): live cameras (already out) → YOLO display → fancy SVG polish → multi-clip → **never** cut VAST / W&B inference / Weave / `/app` deploy.
+**Cut order if behind:** live cameras (already out) → extra map polish → reading all 16 cameras. Do not cut the `/app` deploy.
 
 ---
 
