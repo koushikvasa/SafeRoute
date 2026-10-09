@@ -177,6 +177,7 @@ def _build():
         with open(os.path.join(DATA_DIR, "library.json"), "w") as handle:
             json.dump({"library": _library, "network": _network, "weather": _weather,
                        "baseline_swaps": _baseline_swaps}, handle)
+        tracing.save(os.path.join(DATA_DIR, "calls.json"))
         _update(status="ready", phase="Ready", seconds=round(time.time() - started))
         _fill_pool()
     except Exception as exc:
@@ -370,4 +371,5 @@ def reanalyze(scenario, step_index):
         _pool[scenario].clear()
     rebuilt = compose(scenario, timeline["seed"])
     rebuilt["steps"][step_index]["reanalyzed_seconds"] = round(time.time() - started, 1)
+    tracing.save(os.path.join(DATA_DIR, "calls.json"))
     return rebuilt

@@ -1,5 +1,6 @@
 """SafeRoute: a disaster drill where real video models decide which intersections are safe."""
 
+import atexit
 import os
 import re
 import requests
@@ -134,8 +135,20 @@ def tile(z, x, y):
     return Response(_tile_cache[key], mimetype="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
 
+CALL_LOG = os.path.join(pipeline.DATA_DIR, "calls.json")
+
+
+def _save_calls():
+    try:
+        tracing.save(CALL_LOG)
+    except OSError:
+        pass
+
+
 if __name__ == "__main__":
-    # Load the saved library before serving, so a restart never looks like an empty app.
+    # Load the saved library and call log before serving, so a restart never looks like an empty app.
+    tracing.load(CALL_LOG)
+    atexit.register(_save_calls)
     if not pipeline.load_cached() and os.environ.get("GPU_BEARER_TOKEN"):
         pipeline.prepare()
     port = int(os.environ.get("PORT", "8080"))

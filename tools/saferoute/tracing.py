@@ -6,6 +6,7 @@ W&B console.
 
 import functools
 import itertools
+import json
 import os
 import threading
 import time
@@ -87,6 +88,25 @@ def call(name, fn, *args, label=None, **kwargs):
             stat["errors"] += 0 if ok else 1
             stat["total_ms"] += ms
             stat["last_ms"] = ms
+
+
+def save(path):
+    with _lock:
+        data = {"log": list(_log), "stats": _stats}
+    with open(path, "w") as handle:
+        json.dump(data, handle)
+
+
+def load(path):
+    global _seq
+    if not os.path.exists(path):
+        return
+    with open(path) as handle:
+        data = json.load(handle)
+    with _lock:
+        _log.extend(data.get("log") or [])
+        _stats.update(data.get("stats") or {})
+        _seq = itertools.count(max((r.get("seq", 0) for r in _log), default=0) + 1)
 
 
 def recent(limit=60):
